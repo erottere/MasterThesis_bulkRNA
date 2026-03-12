@@ -1,0 +1,977 @@
+---
+title: "Analysis of RNA-seq data"
+author: "Elise Røttereng"
+date: "2025-09-22"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Downloading packages
+
+```{r library}
+library(tidyverse)
+library(DESeq2)
+library(gggenes)
+library(readxl)
+library(tibble)
+library(stringr)
+library(eulerr)
+library(ggplot2)
+library(mixOmics)
+library(biomaRt)
+library(topGO)
+library(patchwork)
+```
+
+```{r prioritizing functions}
+select <- dplyr::select
+slice <- dplyr::slice
+```
+
+# Read in data
+
+
+## Data from earlier experiment
+
+```{r data from earlier experiment}
+
+eqtl <- read_tsv(file = "eQTLresult.tsv")
+
+hubtargets <- eqtl %>% 
+  filter(eQTL.type=='trans', SNP=='ssa14_50815335') %>% # only trans eQTL and only the gene we are interested in
+          distinct(eQTL, .keep_all = T)
+
+head(hubtargets)
+
+```
+
+This is a list of DEGs from an earlier experiment. This data is used for comparison. 
+
+### Genes in the hub-locus
+
+```{r genes in the hublocus}
+
+hub_locus <- c("ENSSSAG00000005903", "ENSSSAG00000052122", "ENSSSAG00000099904", "ENSSSAG00000004575","ENSSSAG00000004590", "ENSSSAG00000004608", "ENSSSAG00000007619")
+
+```
+
+## Core photoperiod genes
+
+```{r  core photoperiod genes}
+
+core_photoperiod <- read_excel("core photoperiod tables2.xlsx")
+
+```
+
+## Read in data from this experiment
+
+The data has been through a nf-core/RNA-seq pipeline
+
+```{r read in data from this experiment}
+
+cts <- read_tsv(file = "rsem.merged.gene_counts.tsv")
+head(cts)
+
+# Read in metadata
+coldata <- read_excel("bare metadata.xlsx")
+head(coldata)
+
+```
+
+## Read in Ensamble gene description
+
+Table over gene id, gene name, description and more downloaded from salmonbase.org at the 19. of september 2025
+
+```{r read in Ensamble gene description}
+
+gene_des <- read.delim("Ensembl_genes.tsv", sep = "\t")
+colnames(gene_des)[5] <- "Gene"
+head(gene_des)
+
+```
+
+# Adjusting the data
+
+## cts
+
+```{r adjusting cts}
+
+# Remove transcript_id column
+cts <- cts %>% select(-2)
+
+# Make gene_id into row name
+cts <- column_to_rownames(cts, var = colnames(cts)[1])
+
+# Counts into "integer"
+cts <- round(cts) # round off
+cts_matrix <- as.matrix(cts) # make into matrix to be able to change into integer
+storage.mode(cts_matrix) <- "integer"
+
+head(cts_matrix)
+
+```
+
+## coldata
+
+```{r adjusting coldata}
+
+# Transpose 
+coldata <- t(coldata)
+
+# Tidy
+coldata_df <- as.data.frame(coldata)
+names(coldata_df) <- coldata_df[1,] # make first row into column name
+coldata_df <- coldata_df[-1, , drop = FALSE] # remove first repetitive row
+
+head(coldata_df)
+
+```
+
+## Test if data is in the right format
+
+```{r test if data is in right format}
+all(colnames(cts) %in% rownames(coldata))
+```
+
+It is correct.
+
+# Run DESeq analysis with photoperiod as design (controll)
+
+This is a quality control (QC).
+
+## Make a DESeq dataset object with photoperiod as design (controll)
+
+```{r make DESeq dataset object with photoperiod}
+dds_pp <- DESeqDataSetFromMatrix(countData = cts_matrix,
+                       colData = coldata_df,
+                       design = ~ light)
+
+dds_pp
+
+# Remove genes with small counts
+keep_pp <- rowSums(counts(dds_pp)) >= 10 # All genes get the value True or False after if they have higher counts than 9
+dds_pp <- dds_pp[keep_pp,] # Remove False
+dds_pp
+
+# Set factor level
+dds_pp$light <- relevel(dds_pp$light, ref = "LL") # Set to compare with LL (continous light)
+dds_pp$light # Se that LL i first level
+
+```
+
+## Run DESeq2 with photoperiod
+
+```{r run DESeq2 with photoperiod}
+
+dds_des_pp <- DESeq(dds_pp)
+
+# Save the results
+res_pp <- results(dds_des_pp)
+
+head(res_pp)
+summary(res_pp)
+```
+
+## Finding DEGs with photoperiod
+
+Trying to see if the DESeq2 analysis is working by checking if the genes known to be affected by light period are identified. 
+
+### Name of top DGEs with photoperiod
+
+```{r combining data}
+
+# Making a tibbel where the old data and new one is combined
+reshub_pp <- res_pp %>% # put the result in reshub
+  as_tibble() %>% # make into tibble 
+  mutate(Gene=rownames(res_pp)) %>% # make a new column called Gene, same as in hubtarget
+  full_join(hubtargets, by = "Gene") # join the together the data by Gene
+
+```
+
+Using padj = 0.05.
+
+```{r name of DEGs}
+DEGs_pp <- reshub_pp %>% 
+  filter(padj < 0.05) %>% 
+#  filter(abs(log2FoldChange) >1) %>% 
+  select(padj, Gene, log2FoldChange) %>% 
+  merge(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>% 
+  arrange(padj)
+
+head(DEGs_pp)
+```
+
+ENSSSAG00000073055 - ELOVL fatty acid elongase 6 (elovl6)
+ENSSSAG00000049592 - same as bellow
+ENSSSAG00000005879 - hematopoietic cell-specific Lyn substrate 1(hcls1)
+ENSSSAG00000040001 - major histocompatibility complex class I-related gene protein (NCBI)
+ENSSSAG00000070750 - protein coding, but unknown function, kind of similar to galectin-9B-like in brown trout
+ENSSSAG00000093085 - protein coding, but unknown function, kind of similar to sodium/potassium-transporting ATPase subunit alpha-3-like in brown trout
+
+
+# Core photoperiod genes
+
+
+```{r core photoperiod}
+
+# Sanity check 
+
+# Are these known photoperiod genes present in the DEGs
+
+DEGs_pp %>% filter(grepl('sodium/potassium', description)) %>% filter(padj<0.1) 
+
+DEGs_pp %>% filter(grepl('egl-9 family hypoxia-inducible factor 2', description)) %>% filter(padj<0.1)
+
+# The core photoperiod genes
+  
+sum(core_photoperiod$geneID %in% DEGs_pp$Gene)
+
+DEGs_pp_common <- DEGs_pp %>%
+  filter(Gene %in% core_photoperiod$geneID)
+
+```
+
+
+## Resampling
+
+```{r resampling photo}
+
+set.seed(6)
+
+# Resampling:
+
+# Choose 219 random genes from 41 770 genes, is the overlap with core_photo of 103 a lot?
+
+no_core <- nrow(core_photoperiod)
+
+
+resampling_overlap_photo <- sapply(1:1000, function(i){
+    sum(reshub_pp$Gene[sample(nrow(reshub_pp), no_core, replace = F)] %in% DEGs_pp$Gene)
+  })
+
+
+resampling_overlap_photo #Drawn random we still get a overlap of around 103 genes
+
+median(resampling_overlap_photo)
+mean(resampling_overlap_photo)
+
+# calculate the actual overlap 
+
+no_overlap_photo <- sum(core_photoperiod$geneID %in% DEGs_pp$Gene)
+
+no_overlap_photo
+
+# How many times are the random overlap bigger or the same size as the actual one? Divied on the amount of interations. 
+sum(resampling_overlap_photo >= no_overlap_photo)/1000 #p-value
+
+```
+
+
+# DESeq analysis with genotype
+
+## Make a DESeq object
+
+```{r DESeq object with genotype}
+dds <- DESeqDataSetFromMatrix(countData = cts_matrix,
+                       colData = coldata_df,
+                       design = ~ light + genotype) #genotype at the end since this is the one we are most interested in
+
+# Remove genes with low count, less than 10
+
+keep_dds <- rowSums(counts(dds)) >= 10
+dds <- dds[keep_dds]
+
+# Set factor level
+
+dds$genotype <- relevel(dds$genotype, ref = "CC")
+dds$genotype #confirm that CC is first level
+
+```
+
+## Run DESeq analysis
+
+```{r Run DESeq}
+
+dds_des <- DESeq(dds)
+
+res <- results(dds_des)
+res
+
+summary(res)
+```
+
+Combining data 
+
+```{r combining new and old data}
+
+# Making a tibbel where the old data and new one is combined
+reshub <- res %>% #put the result in reshub
+  as_tibble() %>% #make into tibble 
+  mutate(Gene=rownames(res)) %>% #make a new column called Gene, same as in hubtargets
+  full_join(hubtargets, by = "Gene") #join the together the data by Gene
+
+```
+
+## Expression of the hublocus genes and their genotype
+
+```{r boxplot expression hublocus genes}
+
+genot <- as.data.frame(coldata) %>% slice(-1)
+cts_t <- as_tibble(t(cts))
+cts_t <- cts_t %>% mutate(ID = colnames(cts))
+cts_t$genot <- genot$V1[match(cts_t$ID, rownames(genot))]
+
+
+fill_cols <- c("ENSSSAG00000005903 CC"= '#F47F73',
+              "ENSSSAG00000005903 TT"= alpha('#F47F73', 0.5),
+              "ENSSSAG00000052122 CC"= '#FBB463', 
+              "ENSSSAG00000052122 TT"= alpha('#FBB463', 0.5),
+              "ENSSSAG00000099904 CC"= '#CDE6C4', 
+              "ENSSSAG00000099904 TT"= alpha('#CDE6C4', 0.5),
+              "ENSSSAG00000004575 CC"= "#8ED2C6",
+              "ENSSSAG00000004575 TT"= alpha("#8ED2C6", 0.5),
+              "ENSSSAG00000004608 CC"='#BFBADA',
+              "ENSSSAG00000004608 TT"= alpha('#BFBADA', 0.5),
+              "ENSSSAG00000004590 CC"='#FCF6B5', 
+              "ENSSSAG00000004590 TT"=alpha('#FCF6B5', 0.5),
+              "ENSSSAG00000007619 CC"="#81B2D3", 
+              "ENSSSAG00000007619 TT"=alpha("#81B2D3", 0.5))
+ 
+p0 <- cts_t %>% select(hub_locus, genot) %>% 
+  pivot_longer(cols = starts_with("ENS"), values_to = 'counts') %>% 
+  dplyr::rename(genes = name) %>% 
+  mutate(group = factor(paste(genes, genot), levels=names(fill_cols))) %>% 
+  #mutate(log.counts = log(counts)) %>% 
+  ggplot(aes(y=counts, x=group, fill=group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = fill_cols) +
+  geom_jitter(shape = 21, color = "black") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), legend.position = "none") +
+  plot_layout(widths = 555, heights = 550) +
+  labs(x = "Gene and genotype", y = "BaseMean")
+
+
+annot <- read_tsv('https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv')
+
+p1 <- annot %>% filter(seqname == '14', 
+                       start>50400000 & 
+                         end<51000000, gene_id %in% hub_locus) %>%
+  mutate(strand = strand=='+') %>% 
+  ggplot( aes(xmin = start, xmax = end, y = seqname, fill = gene_id, forward=strand)) +
+  geom_gene_arrow() +
+  scale_fill_brewer(palette = "Set3", breaks = hub_locus) +
+  xlim(c(50400000,51000000)) +
+  theme_genes() +
+  labs(x = "Position (Mbp)", y = "", fill = "Gene")
+ 
+ 
+patch_hublocus_expr_plot <- p1/p0 + plot_annotation(title = "Gene expression of the hub-locus genes", tag_levels = "A")
+
+
+patch_hublocus_expr_plot
+
+```
+
+## Gen expression of the hub-locus genes
+
+```{r gen expr hub-locus}
+
+locus_in_DEGs <- reshub %>% 
+  filter(Gene %in% hub_locus)
+
+fill_cols_2 <- c("ENSSSAG00000005903"= '#F47F73',
+              "ENSSSAG00000052122"= '#FBB463',
+              "ENSSSAG00000099904"= '#CDE6C4',
+              "ENSSSAG00000004575"= "#8ED2C6",
+              "ENSSSAG00000004608"='#BFBADA',
+              "ENSSSAG00000004590"='#FCF6B5', 
+              "ENSSSAG00000007619"= '#81B2D3')
+
+
+locus_in_DEGs <- locus_in_DEGs %>%
+  mutate(Gene = factor(Gene, levels = names(fill_cols_2)))
+
+ggplot(locus_in_DEGs, aes(x = Gene, y = baseMean, fill = Gene)) +
+  geom_col() +
+  scale_fill_manual(values = fill_cols_2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Gene Expression of the Genes in the Hub-Locus")
+
+```
+
+# DEGs
+
+## Amout of DEGs
+
+Using padj = 0.2.
+
+```{r amount of DEGs}
+
+# How many DEGs are found in the hubsomt data?
+reshub <- reshub %>% 
+  mutate(is.hub=ifelse(is.na(eQTL), F, T)) # make is.hub with True or False if eQTL is na, if Na = False gene is found in hubtargets
+
+reshub %>% filter(padj<0.2) %>% # filter for adjusted p-value = 0.2
+  group_by(is.hub) %>% 
+  summarize(mean.lfc = mean(log2FoldChange), N = n()) # find mean for log2FoldChange and count how many genes are NA
+
+```
+
+440 Degs only in the new data, only 24 of them are also found in the hubtarget data. Low mean log2 fold change.
+
+## Percentage of DEGs in the differnt data sets
+
+```{r DEG %}
+440/(41780-2075) # number of DEGs only in the new data divided by number of genes only in the new data
+
+24/2075 # number of DEGs in both data sets divided by number of DEGs form the hubtarget data
+```
+
+## Name of top DEGs overall
+
+```{r top DEGs}
+DEGs <- reshub %>% 
+  filter(padj < 0.2) %>% 
+  select(padj, Gene, log2FoldChange, baseMean) %>% 
+  merge(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>% 
+  arrange(padj)
+
+head(DEGs)
+```
+
+ENSSSAG00000004590 - uridylate-specific endoribonuclease C-like (NCBI)
+ENSSSAG00000007619 - protein coding, but unknown function, kind of similar to zinc finger FYVE domain-containing protein 9-like in brown trout
+ENSSSAG00000113063 - protein coding, but unknown function
+ENSSSAG00000004608 - protein coding, but unknown function
+ENSSSAG00000110711 - long non-coding RNA
+ENSSSAG00000118211 - protein coding, but unknown function
+
+## Name of top DEGs that are also found in Hubtarget
+
+```{r name of DEGs found in both data sets}
+DEGs_hubtargets <- reshub %>%
+  filter(is.hub == TRUE, padj < 0.2) %>% # only include genes that are in both data set and have an adjusted p-value over 0.2
+  select(padj, Gene, log2FoldChange, baseMean) %>% 
+  merge(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>% 
+  arrange(padj)
+
+head(DEGs_hubtargets)
+```
+
+ENSSSAG00000040831 - CCR4-NOT transcription complex, subunit 10 (cnot10)
+ENSSSAG00000005545 - KRIT1, ankyrin repeat containing (NCBI)
+ENSSSAG00000041952 - transmembrane protein 128 (tmem107)
+ENSSSAG00000063494 - solute carrier family 9 member A6 (slc9a6a)
+ENSSSAG00000084204 - protein coding, but unknown function
+ENSSSAG00000000827 - peroxiredoxin 4 (prdx4)
+
+
+## Venn diagram over DEGs
+
+```{r Venn diagram}
+
+DEGs_names <- DEGs$Gene
+Hubtargets_names <- hubtargets$Gene
+
+gene_name_list <- list("New DEGs" = DEGs_names, "Hubtargets" = Hubtargets_names)
+
+fit <- euler(gene_name_list)
+
+venn_plot <- plot(fit,
+     quantities = T,
+     fills = c("steelblue", "deeppink4"),
+     alpha = 0.5,
+     labels = TRUE,
+     main = "The amount of genes overlapping between this experiment and the hubtargets")
+
+venn_plot
+
+```
+
+
+# Statstical control 
+
+Want to find how statistically strong the DEGs are. 
+
+## Randomization test
+
+```{r randomization test hubtargets}
+
+set.seed(14)
+
+# Draw DEGS amount of random genes
+no_DEGs <- nrow(DEGs) 
+
+# Making a table with expression data and a row with T/F after if it is a DEG and if it is in hubtargets. Not used directly in the randomization test
+expr_tbl <- reshub %>% select(Gene, baseMean, log2FoldChange, pvalue, padj) %>% 
+  filter(!is.na(baseMean)) %>% 
+  mutate(is_DEG = Gene %in% DEGs$Gene) %>% 
+  mutate(is_hub = Gene %in% hubtargets$Gene)
+  
+
+# Resampling:
+
+# Choose 464 random genes from 41 770 genes, is the overlap with hubtagets of 24 a lot?
+resampling_overlap <- sapply(1:1000, function(i){
+    sum(reshub$Gene[sample(nrow(reshub), no_DEGs, replace = F)] %in% hubtargets$Gene)
+  })
+
+resampling_overlap #Drawn random we still get a overlap of around 24 genes
+
+median(resampling_overlap)
+mean(resampling_overlap)
+
+# calculate the actual overlap 
+no_overlap_hub <- DEGs %>% 
+  filter(Gene %in% hubtargets$Gene) %>% 
+  nrow()
+
+no_overlap_hub
+
+# How many times are the random overlap bigger or the same size as the actual one? Divied on the amount of interations. 
+sum(resampling_overlap >= no_overlap_hub)/1000 #p-value
+
+```
+
+
+## PLS-DA
+
+```{r rlog transformasjon}
+
+rld <- rlog(dds_des, blind = TRUE) #use blind = TRUE so design is ignored and does not impact the test
+```
+
+### Run PLS-DA
+
+```{r Run PLS-DA}
+
+# Get the matrix from the rld-object
+expr_matrix <- t(assay(rld))  #turn the matrix
+
+# Remove the effect of light
+light <- colData(dds_des)$light
+
+expr_matrix_corrected <- apply(expr_matrix, MARGIN = 2, function(gene_expr) { #apply + MARGIN = 2 means run for every column, gene_expr is the expression of every sample
+  residuals(lm(gene_expr ~ light)) #run a linear regression on the gen expression and use the light as a explanation variable, residual keeps the gen expression that can not be explained by light. 
+})
+
+# Make group vector
+group_vector <- colData(dds_des)$genotype
+
+# Run the PLS-DA with 3 components
+plsda_result <- plsda(expr_matrix_corrected, group_vector, ncomp = 5)
+
+```
+
+
+### Cross-validation
+
+```{r cross validation PLS-DA}
+
+set.seed(2002)
+
+# Cross-validation of the PLS_DA model
+perf_result <- perf(plsda_result, validation = "Mfold", folds = 5) 
+
+# Plot of error rates
+plot(perf_result$error.rate$overall[,"max.dist"], type = "b",
+     xlab = "Number of components", ylab = "Error rate",
+     main = "Cross-validation Error for PLS-DA",
+     xaxt = "n")
+
+axis(1, at = 1:nrow(perf_result$error.rate$overall), labels = rownames(perf_result$error.rate$overall))
+
+```
+
+### Score Plots
+
+```{r Score plots}
+
+# Plot the frst two components against each other
+df_comp12 <- data.frame(comp1 = plsda_result$variates$X[,1],
+                 comp2 = plsda_result$variates$X[,2],
+                 group = group_vector)
+
+PLS_DA_plot<- ggplot(df_comp12, aes(x = comp1, y = comp2, color = group)) + geom_point(size = 3, alpha = 0.8) +
+  labs(title = "PLS-DA score plot: Component 1 vs 2", 
+       x = "Component 1", 
+       y = "Component 2", 
+       color = "Genotype") +
+  theme_classic()
+
+PLS_DA_plot #every dot is a sample
+
+
+# Scores for component 1
+scores1 <- plsda_result$variates$X[,1] 
+scores1_df <- data.frame(scores1)
+
+# Box plot of how well component two is to separate genotypes
+score1_plot <- ggplot(scores1_df, aes(x = group_vector, y = scores1, fill = group_vector)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, size = 2, color = "black") +
+  labs(title = "Component 1",
+       x = "Genotype",
+       y = "Component 1 score",
+       fill = "Genotype") +
+  theme_classic()
+
+score1_plot
+
+# Scores for component 2
+scores2 <- plsda_result$variates$X[,2] 
+scores2_df <- data.frame(scores2)
+
+# Box plot of how well component two is to separete genotypes
+score2_plot <- ggplot(scores2_df, aes(x = group_vector, y = scores2, fill = group_vector)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, size = 2, color = "black") +
+  labs(title = "Component 2",
+       x = "Genotype",
+       y = "Component 2 score",
+       fill = "Genotype") +
+  theme_classic()
+
+score2_plot
+
+patchwork_score_plots <- score1_plot | score2_plot
+patchwork_score_plots + plot_annotation(title = "Separation on PLS-DA", tag_levels = "A")
+```
+
+### PLS-DA loadings
+
+```{r PLS-DA loadings}
+
+loadings_plot <- plotLoadings(plsda_result, comp = 1, method = "mean")
+
+
+load <- plsda_result$loadings$X[, 1]
+
+loadings_plot_2 <- plot(load,
+     pch = 16,
+     xlab = "Genes index",
+     ylab = "Loading value",
+     main = "Loadings to Componenet 1")
+
+
+
+# Make loadings into dataframe
+loadings_DA <- plsda_result$loadings
+df_loadings_DA <- as.data.frame(loadings_DA)
+head(df_loadings_DA)
+
+# Top 6 genes with higest absolut loading
+top6_genes_comp1_DA <- df_loadings_DA %>%
+  rownames_to_column("Gene") %>%
+  select(Gene, Loading = X.comp1) %>% 
+  inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>% arrange(desc(abs(Loading))) %>%
+  head()
+
+top6_genes_comp1_DA
+
+```
+
+### Calculating VIP-scores
+
+```{r calculating VIP scores}
+
+vip_scores_DA <- mixOmics::vip(plsda_result)
+head(vip_scores_DA)
+
+# Calculating VIP-scores combined for the components
+vip_classic <- function(plsda_obj) {
+  W <- plsda_obj$loadings$X        #w_jk (variables x components)
+  T <- plsda_obj$variates$X        #scores (observations x components)
+  Q <- plsda_obj$loadings$Y        #y-loadings (dependency of y)
+  
+  p <- nrow(W)  #number of variables
+  A <- ncol(W)  #number of components
+
+  # Calculate SSY for each componenet
+  SSY <- colSums((T %*% t(Q))^2)
+  
+  # Classic VIP
+  vip <- rep(0, p)
+  for (j in 1:p) {
+    vip[j] <- sqrt(p * sum(SSY * (W[j, ]^2)) / sum(SSY))
+  }
+  
+  names(vip) <- rownames(W)
+  return(vip)
+}
+
+
+vip_final <- vip_classic(plsda_result)
+
+vip_sorted <- sort(vip_final, decreasing = TRUE) %>%
+  enframe(name = "Gene", value = "value") %>%
+  inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>%
+  as_tibble()
+
+head(vip_sorted)
+
+top30VIP <- slice_head(vip_sorted, n = 30)
+
+top_30_vip_plot <- ggplot(top30VIP, aes(x = Gene, y = value)) +
+  geom_col(fill = "salmon") +
+  coord_flip() +
+  labs(title = "The Top 30 Genes with the Highest VIP Scores",
+       x = "Genes",
+       y = "VIP score") +
+  theme_minimal()
+
+top_30_vip_plot
+
+```
+
+How many of the genes with high VIP score are hubtargets
+
+```{r hutargets in top VIP}
+
+hubtargets_in_VIP <- top30VIP %>% 
+  filter(Gene %in% hubtargets$Gene)
+
+nrow(hubtargets_in_VIP)
+
+hubtargets_in_VIP
+
+```
+
+How many of the genes with high VIP are in the hub-locus
+
+```{r vip to locus}
+
+locus_in_VIP <- top30VIP %>% 
+  filter(Gene %in% hub_locus)
+
+nrow(locus_in_VIP)
+
+locus_in_VIP
+
+```
+
+# Pathway analysis
+
+## Gen ontology (GO) enrichment anlysis
+
+### Seting up for running GO
+
+```{r GO preparation}
+
+# Filtering for log2FoldChange
+DEGs_fold <- subset(DEGs, abs(log2FoldChange) > 0.5) #from 464 genes to only 141 genes
+DEGs_list <- DEGs_fold$Gene #making list of gene names
+
+
+# Conecting to Ensamble for salmon 
+ensembl <- useMart("ensembl", dataset = "ssalar_gene_ensembl")
+
+
+# Annotating all genes
+annot <- getBM(
+  attributes = c("ensembl_gene_id", "go_id"), #get ensembl-ID and GO-ID
+  mart = ensembl) %>% #gens are named in teh ensembl format
+  filter(go_id != "") #filer out the genes that do not have an ensembl ID
+
+
+# List of Ensembl ID with GO-ID
+gene2GO <- split(annot$go_id, annot$ensembl_gene_id) #put the GO-IDs together with each gene 
+
+
+# List over genes and if they are DEGs or not
+gene_list <- annot %>% 
+  distinct(ensembl_gene_id) %>% #every genes is only in one time
+  mutate(isDEG = as.integer(ensembl_gene_id %in% DEGs_fold$Gene)) %>% #make a new colunm with 1 or 0 if it is a DEG or not
+  deframe() %>% #makes into a vector
+  factor() #convert 0 and 1 into factor
+
+```
+
+### Running GO-enrichment for biological process
+
+```{r run GO BP}
+
+# Create topGOdata object 
+GOdata_BP <- new("topGOdata",
+              ontology = "BP",  #Biological Process
+              allGenes = gene_list,
+              annot = annFUN.gene2GO,
+              gene2GO = gene2GO)
+
+
+# See if GO-terms is more common in DEGs then is expected
+res_fisher_BP <- runTest(GOdata_BP, algorithm = "classic", statistic = "fisher")
+res_fisher_BP
+
+# 223 non-trivial GO-terms, terms with at least one DEG. 21 GO-terms had significant over representations of DEGs. Only 44 DEGs with GO-information 
+
+# Table with the 20 most significant GO-terms (gene functions)
+GOres_BP <- GenTable(GOdata_BP, classicFisher = res_fisher_BP, topNodes = 20)
+head(GOres_BP)
+
+# Clean up
+GOres_clean_BP <- GOres_BP %>%
+  mutate(
+    classicFisher = as.numeric(classicFisher), #makes the p-values into numbers from character 
+    negLog10P = -log10(classicFisher)) %>% #logfold the p-value to make it readable, minus so lower numbers get higher value
+  filter(!is.na(classicFisher)) %>% #remove rows without p-value
+  arrange(desc(negLog10P)) %>% #most significsnt first
+  mutate(Term = factor(Term, levels = rev(unique(Term))))
+
+# Make plot
+GO_plot_BP <- ggplot(GOres_clean_BP[1:20, ], aes(x = Term, y = negLog10P)) +
+  geom_col(fill = "#0072B2") +
+  coord_flip() +
+  ylim(0, 5.5) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Biological Process",
+    x = NULL,
+    y = expression(-log[10](p-value)))
+
+GO_plot_BP
+
+```
+
+### Run GO-enrichment for molecular function
+
+```{r run GO MF}
+
+# Run GO-enrichment
+GOdata_MF <- new("topGOdata",
+              ontology = "MF",  #Molecular function
+              allGenes = gene_list,
+              annot = annFUN.gene2GO,
+              gene2GO = gene2GO)
+
+
+# See if GO-terms is more common in DEGs then is expected
+resultFisher_MF <- runTest(GOdata_MF, algorithm = "classic", statistic = "fisher")
+resultFisher_MF
+
+# 208 non-trivial GO-terms, terms with at least one DEG. 10 GO-terms had significant over representations of DEGs. Only 94 DEGs with GO-information 
+
+# Table with the 20 most significant GO-terms (gene functions)
+GOres_MF <- GenTable(GOdata_MF, classicFisher = resultFisher_MF, topNodes = 20)
+head(GOres_MF)
+
+# Clean up
+GOres_clean_MF <- GOres_MF %>%
+  mutate(
+    classicFisher = as.numeric(classicFisher), #makes the p-values into numbers from character 
+    negLog10P = -log10(classicFisher)) %>% #logfold the p-value to make it readable, minus so lower numbers get higher value
+  filter(!is.na(classicFisher)) %>% #remove rows without p-value
+  arrange(desc(negLog10P)) %>% #most significsnt first
+  mutate(Term = factor(Term, levels = rev(unique(Term))))
+
+# Make plot
+GO_plot_MF <- ggplot(GOres_clean_MF[1:20, ], aes(x = Term, y = negLog10P)) +
+  geom_col(fill = "#EE3A8C") +
+  coord_flip() +
+  ylim(0, 5.5) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Molecular function",
+    x = NULL,
+    y = expression(-log[10](p-vaue)))
+
+GO_plot_MF
+
+```
+
+Patchwork plot
+
+```{r patchwork GO plot}
+patch_GO_plot <- GO_plot_BP | GO_plot_MF
+patch_GO_plot + plot_annotation(
+  title = "Significant GO-terms",
+  tag_levels = "A")
+```
+
+
+# Compare to scRNA
+
+```{r load}
+
+load("all_couts_genes_object.Rdata")
+
+scRNA_matrix <- sum_matrix
+
+rm(sum_matrix)
+
+```
+
+Give same name
+
+```{r name}
+
+sample_map <- c(
+  sample1 = "GL217",
+  sample2 = "GL236",
+  sample3 = "GL218",
+  sample5 = "GL225",
+  sample7 = "GL226",
+  sample9 = "GL233",
+  sample10 = "GL235",
+  sample11 = "GL219",
+  sample12 = "GL234")
+
+```
+
+Keep only the common genes
+
+```{r common genes}
+
+common_genes <- intersect(rownames(scRNA_matrix), rownames(cts_matrix))
+
+sc_sub  <- scRNA_matrix[common_genes, ]
+cts_sub  <- cts_matrix[common_genes, ]
+
+```
+
+Use only the samples that are in both scRNA and bulkRNA
+
+```{r common samples}
+
+sc_samples <- intersect(colnames(sc_sub), names(sample_map))
+bulk_samples <- sample_map[sc_samples]
+
+# Get mean of expression
+sc_agg <- rowMeans(scRNA_matrix[, sc_samples])
+
+bulk_agg <- rowMeans(cts_matrix[, bulk_samples])
+```
+
+Remove genes with 0 expression
+
+```{r remove zero}
+
+keep <- sc_agg > 0 | bulk_agg > 0
+sc_agg <- sc_agg[keep]
+bulk_agg <- bulk_agg[keep]
+
+```
+
+Plot
+
+```{r plot}
+
+plot(
+  log10(bulk_agg),
+  log10(sc_agg),
+  pch = 16,
+  cex = 0.4,
+  xlab = "Bulk RNA (log10)",
+  ylab = "scRNA pseudo-bulk (log10)",
+  main = "All samples aggregated")
+
+
+```
+
