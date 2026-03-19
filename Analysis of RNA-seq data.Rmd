@@ -91,7 +91,6 @@ Table over gene id, gene name, description and more downloaded from salmonbase.o
 
 gene_des <- read.delim("Ensembl_genes.tsv", sep = "\t")
 colnames(gene_des)[5] <- "Gene"
-head(gene_des)
 
 ```
 
@@ -321,52 +320,86 @@ reshub <- res %>% #put the result in reshub
 
 ```{r boxplot expression hublocus genes}
 
+set.seed(14)
+
 genot <- as.data.frame(coldata) %>% slice(-1)
 cts_t <- as_tibble(t(cts))
 cts_t <- cts_t %>% mutate(ID = colnames(cts))
 cts_t$genot <- genot$V1[match(cts_t$ID, rownames(genot))]
 
+annot <- read_tsv('https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv')
 
-fill_cols <- c("ENSSSAG00000005903 CC"= '#F47F73',
-              "ENSSSAG00000005903 TT"= alpha('#F47F73', 0.5),
-              "ENSSSAG00000052122 CC"= '#FBB463', 
-              "ENSSSAG00000052122 TT"= alpha('#FBB463', 0.5),
-              "ENSSSAG00000099904 CC"= '#CDE6C4', 
-              "ENSSSAG00000099904 TT"= alpha('#CDE6C4', 0.5),
-              "ENSSSAG00000004575 CC"= "#8ED2C6",
-              "ENSSSAG00000004575 TT"= alpha("#8ED2C6", 0.5),
-              "ENSSSAG00000004608 CC"='#BFBADA',
-              "ENSSSAG00000004608 TT"= alpha('#BFBADA', 0.5),
-              "ENSSSAG00000004590 CC"='#FCF6B5', 
-              "ENSSSAG00000004590 TT"=alpha('#FCF6B5', 0.5),
-              "ENSSSAG00000007619 CC"="#81B2D3", 
-              "ENSSSAG00000007619 TT"=alpha("#81B2D3", 0.5))
- 
-p0 <- cts_t %>% select(hub_locus, genot) %>% 
+gene_map <- annot %>% 
+  select(gene_id, gene_name) %>% 
+  distinct()
+
+
+fill_cols <- c("CTSZ CC"= '#F47F73',
+              "CTSZ TT"= alpha('#F47F73', 0.5),
+              "MPPE1 CC"= '#FBB463', 
+              "MPPE1 TT"= alpha('#FBB463', 0.5),
+              "GNAI1 CC"= '#CDE6C4', 
+              "GNAI1 TT"= alpha('#CDE6C4', 0.5),
+              "pak1Ip1 CC"= "#8ED2C6",
+              "pak1Ip1 TT"= alpha("#8ED2C6", 0.5),
+              "endoU CC"='#FCF6B5', 
+              "endoU TT"=alpha('#FCF6B5', 0.5),
+              "FAM111A CC"='#BFBADA',
+              "FAM111A TT"= alpha('#BFBADA', 0.5),
+              "ZFYVE9 CC"="#81B2D3", 
+              "ZFYVE9 TT"=alpha("#81B2D3", 0.5))
+
+gene_manual <- c(
+  "ENSSSAG00000005903" = "CTSZ",
+  "ENSSSAG00000052122" = "MPPE1",
+  "ENSSSAG00000099904" = "GNAI1",
+  "ENSSSAG00000004575" = "pak1Ip1",
+  "ENSSSAG00000004590" = "endoU",
+  "ENSSSAG00000004608" = "FAM111A",
+  "ENSSSAG00000007619" = "ZFYVE9"
+)
+
+cts_t_long <- cts_t %>% 
+  select(hub_locus, genot) %>% 
   pivot_longer(cols = starts_with("ENS"), values_to = 'counts') %>% 
   dplyr::rename(genes = name) %>% 
-  mutate(group = factor(paste(genes, genot), levels=names(fill_cols))) %>% 
-  #mutate(log.counts = log(counts)) %>% 
-  ggplot(aes(y=counts, x=group, fill=group)) +
+  left_join(gene_map, by = c("genes" = "gene_id")) %>% 
+  mutate(
+    gene_name = dplyr::coalesce(gene_name, gene_manual[genes]),
+    gene_name = ifelse(is.na(gene_name), genes, gene_name),
+    counts = log2(counts + 1),
+    group = factor(paste(gene_name, genot), levels = unlist(lapply(gene_manual, function(g) paste(g, c("CC","TT"))))))
+
+p0 <- cts_t_long %>% 
+  ggplot(aes(y = counts, x = group, fill = group)) +
   geom_boxplot() +
   scale_fill_manual(values = fill_cols) +
-  geom_jitter(shape = 21, color = "black") +
+  geom_jitter(aes(color = group), shape = 21, size = 2.5, color = "black") +
   theme_bw() + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), legend.position = "none") +
   plot_layout(widths = 555, heights = 550) +
-  labs(x = "Gene and genotype", y = "BaseMean")
+  labs(x = "Gene and genotype", y = "log2(BaseMean + 1)")
 
 
-annot <- read_tsv('https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv')
+fill_colors <- c(
+  "CTSZ" = '#F47F73',
+  "MPPE1" = '#FBB463',
+  "GNAI1" = '#CDE6C4',
+  "pak1Ip1" = "#8ED2C6",
+  "endoU" = '#FCF6B5',
+  "FAM111A" = '#BFBADA',
+  "ZFYVE9" = "#81B2D3")
 
-p1 <- annot %>% filter(seqname == '14', 
-                       start>50400000 & 
-                         end<51000000, gene_id %in% hub_locus) %>%
-  mutate(strand = strand=='+') %>% 
-  ggplot( aes(xmin = start, xmax = end, y = seqname, fill = gene_id, forward=strand)) +
+p1 <- annot %>% 
+  filter(seqname == '14', start > 50400000 & end < 51000000, gene_id %in% hub_locus) %>%
+  mutate(
+    gene_name = dplyr::coalesce(gene_manual[gene_id], gene_id),
+    gene_name = factor(gene_name, levels = names(fill_colors)),
+    strand = strand == '+') %>% 
+  ggplot(aes(xmin = start, xmax = end, y = seqname, fill = gene_name,forward = strand)) +
   geom_gene_arrow() +
-  scale_fill_brewer(palette = "Set3", breaks = hub_locus) +
-  xlim(c(50400000,51000000)) +
+  scale_fill_manual(values = fill_colors) +
+  xlim(c(50400000, 51000000)) +
   theme_genes() +
   labs(x = "Position (Mbp)", y = "", fill = "Gene")
  
