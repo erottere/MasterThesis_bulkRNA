@@ -513,7 +513,7 @@ ENSSSAG00000000827 - peroxiredoxin 4 (prdx4)
 DEGs_names <- DEGs$Gene
 Hubtargets_names <- hubtargets$Gene
 
-gene_name_list <- list("New DEGs" = DEGs_names, "Hubtargets" = Hubtargets_names)
+gene_name_list <- list("DEGs" = DEGs_names, "Hubtargets" = Hubtargets_names)
 
 fit <- euler(gene_name_list)
 
@@ -521,8 +521,7 @@ venn_plot <- plot(fit,
      quantities = T,
      fills = c("steelblue", "deeppink4"),
      alpha = 0.5,
-     labels = TRUE,
-     main = "The amount of genes overlapping between this experiment and the hubtargets")
+     labels = TRUE)
 
 venn_plot
 
