@@ -708,6 +708,13 @@ top6_genes_comp1_DA <- df_loadings_DA %>%
 
 top6_genes_comp1_DA
 
+
+# Shorten the loading data frame
+
+df_loadings_reduced <- df_loadings_DA[, c("X.comp1", "Y.comp1")] %>% head(70)
+
+
+
 ```
 
 ### Calculating VIP-scores
@@ -717,45 +724,34 @@ top6_genes_comp1_DA
 vip_scores_DA <- mixOmics::vip(plsda_result)
 head(vip_scores_DA)
 
-# Calculating VIP-scores combined for the components
-vip_classic <- function(plsda_obj) {
-  W <- plsda_obj$loadings$X        #w_jk (variables x components)
-  T <- plsda_obj$variates$X        #scores (observations x components)
-  Q <- plsda_obj$loadings$Y        #y-loadings (dependency of y)
-  
-  p <- nrow(W)  #number of variables
-  A <- ncol(W)  #number of components
+vip_mean <- rowMeans(vip_scores_DA)
 
-  # Calculate SSY for each componenet
-  SSY <- colSums((T %*% t(Q))^2)
-  
-  # Classic VIP
-  vip <- rep(0, p)
-  for (j in 1:p) {
-    vip[j] <- sqrt(p * sum(SSY * (W[j, ]^2)) / sum(SSY))
-  }
-  
-  names(vip) <- rownames(W)
-  return(vip)
-}
+```
 
+How many have a a high VIP score
 
-vip_final <- vip_classic(plsda_result)
+```{r sort and cutoff}
 
-vip_sorted <- sort(vip_final, decreasing = TRUE) %>%
-  enframe(name = "Gene", value = "value") %>%
-  inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene") %>%
-  as_tibble()
+vip_sorted <- sort(vip_mean, decreasing = TRUE)
 
-head(vip_sorted)
+vip_df <- vip_sorted %>%
+  enframe(name = "Gene", value = "VIP") %>%
+  inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene")
 
-top30VIP <- slice_head(vip_sorted, n = 30)
+vip15 <- filter(vip_df, VIP > 1.5)
+```
 
-top_30_vip_plot <- ggplot(top30VIP, aes(x = Gene, y = value)) +
+Try to plot
+
+```{r}
+
+top30VIP <- slice_head(vip_df, n = 30)
+
+top_30_vip_plot <- ggplot(top30VIP, aes(x = reorder(Gene, VIP), y = VIP)) +
   geom_col(fill = "salmon") +
   coord_flip() +
-  labs(title = "The Top 30 Genes with the Highest VIP Scores",
-       x = "Genes",
+  labs(title = "Top 30 genes by VIP score",
+       x = "",
        y = "VIP score") +
   theme_minimal()
 
@@ -767,7 +763,7 @@ How many of the genes with high VIP score are hubtargets
 
 ```{r hutargets in top VIP}
 
-hubtargets_in_VIP <- top30VIP %>% 
+hubtargets_in_VIP <- vip15 %>% 
   filter(Gene %in% hubtargets$Gene)
 
 nrow(hubtargets_in_VIP)
@@ -780,12 +776,51 @@ How many of the genes with high VIP are in the hub-locus
 
 ```{r vip to locus}
 
-locus_in_VIP <- top30VIP %>% 
+locus_in_VIP <- vip15 %>% 
   filter(Gene %in% hub_locus)
 
 nrow(locus_in_VIP)
 
 locus_in_VIP
+
+```
+
+Randomization test
+
+```{r randomization test hubtargets}
+
+set.seed(14)
+
+# Draw DEGS amount of random genes
+no_vip <- nrow(vip15) 
+
+
+expr_tbl <- reshub %>% select(Gene, baseMean, log2FoldChange, pvalue, padj) %>% 
+  filter(!is.na(baseMean)) %>% 
+  mutate(is_DEG = Gene %in% vip15$Gene) %>% 
+  mutate(is_hub = Gene %in% hubtargets$Gene)
+  
+
+# Resampling:
+
+resampling_overlap_vip <- sapply(1:1000, function(i){
+    sum(reshub$Gene[sample(nrow(reshub), no_vip, replace = F)] %in% hubtargets$Gene)
+  })
+
+resampling_overlap_vip 
+
+median(resampling_overlap_vip)
+mean(resampling_overlap_vip)
+
+# calculate the actual overlap 
+no_overlap_vip <- vip15 %>% 
+  filter(Gene %in% hubtargets$Gene) %>% 
+  nrow()
+
+no_overlap_vip
+
+# How many times are the random overlap bigger or the same size as the actual one? Divied on the amount of interations. 
+sum(resampling_overlap_vip >= no_overlap_vip)/1000 #p-value
 
 ```
 
