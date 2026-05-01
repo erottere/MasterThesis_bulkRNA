@@ -597,7 +597,7 @@ expr_matrix_corrected <- apply(expr_matrix, MARGIN = 2, function(gene_expr) { #a
 # Make group vector
 group_vector <- colData(dds_des)$genotype
 
-# Run the PLS-DA with 3 components
+# Run the PLS-DA with 5 components
 plsda_result <- plsda(expr_matrix_corrected, group_vector, ncomp = 5)
 
 ```
@@ -621,6 +621,17 @@ plot(perf_result$error.rate$overall[,"max.dist"], type = "b",
 axis(1, at = 1:nrow(perf_result$error.rate$overall), labels = rownames(perf_result$error.rate$overall))
 
 ```
+
+### Run again with 3 componenets 
+
+```{r 3 comp}
+
+# Run the PLS-DA with 5 components
+plsda_result <- plsda(expr_matrix_corrected, group_vector, ncomp = 3)
+
+```
+
+
 
 ### Score Plots
 
@@ -713,8 +724,6 @@ top6_genes_comp1_DA
 
 df_loadings_reduced <- df_loadings_DA[, c("X.comp1", "Y.comp1")] %>% head(70)
 
-
-
 ```
 
 ### Calculating VIP-scores
@@ -739,6 +748,7 @@ vip_df <- vip_sorted %>%
   inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene")
 
 vip15 <- filter(vip_df, VIP > 1.5)
+
 ```
 
 Try to plot
@@ -889,11 +899,30 @@ GOres_clean_BP <- GOres_BP %>%
     classicFisher = as.numeric(classicFisher), #makes the p-values into numbers from character 
     negLog10P = -log10(classicFisher)) %>% #logfold the p-value to make it readable, minus so lower numbers get higher value
   filter(!is.na(classicFisher)) %>% #remove rows without p-value
-  arrange(desc(negLog10P)) %>% #most significsnt first
+  arrange(desc(negLog10P)) %>% #most significant first
   mutate(Term = factor(Term, levels = rev(unique(Term))))
 
+# Get actual full description and not just ...
+
+GOres_clean_BP$Term_full <- AnnotationDbi::select(
+  GO.db,
+  keys = GOres_BP$GO.ID,
+  keytype = "GOID",
+  columns = "TERM"
+)$TERM
+
+# Get correct order
+
+GOres_clean_BP <- GOres_clean_BP %>%
+  arrange(desc(negLog10P))
+
+GOres_clean_BP$Term_full <- factor(
+  GOres_clean_BP$Term_full,
+  levels = rev(GOres_clean_BP$Term_full))
+
+
 # Make plot
-GO_plot_BP <- ggplot(GOres_clean_BP[1:20, ], aes(x = Term, y = negLog10P)) +
+GO_plot_BP <- ggplot(GOres_clean_BP[1:20, ], aes(x = Term_full, y = negLog10P)) +
   geom_col(fill = "#0072B2") +
   coord_flip() +
   ylim(0, 5.5) +
@@ -901,11 +930,16 @@ GO_plot_BP <- ggplot(GOres_clean_BP[1:20, ], aes(x = Term, y = negLog10P)) +
   labs(
     title = "Biological Process",
     x = NULL,
-    y = expression(-log[10](p-value)))
+    y = expression(-log[10](p-value))) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
 GO_plot_BP
 
 ```
+
+
+
 
 ### Run GO-enrichment for molecular function
 
@@ -929,17 +963,26 @@ resultFisher_MF
 GOres_MF <- GenTable(GOdata_MF, classicFisher = resultFisher_MF, topNodes = 20)
 head(GOres_MF)
 
-# Clean up
 GOres_clean_MF <- GOres_MF %>%
   mutate(
-    classicFisher = as.numeric(classicFisher), #makes the p-values into numbers from character 
-    negLog10P = -log10(classicFisher)) %>% #logfold the p-value to make it readable, minus so lower numbers get higher value
-  filter(!is.na(classicFisher)) %>% #remove rows without p-value
-  arrange(desc(negLog10P)) %>% #most significsnt first
-  mutate(Term = factor(Term, levels = rev(unique(Term))))
+    classicFisher = as.numeric(classicFisher),
+    negLog10P = -log10(classicFisher)
+  ) %>%
+  filter(!is.na(classicFisher)) %>%
+  arrange(desc(negLog10P)) %>%
+  mutate(
+    Term_full = AnnotationDbi::select(
+      GO.db,
+      keys = GO.ID,
+      keytype = "GOID",
+      columns = "TERM"
+    )$TERM,
+    
+    Term_full = factor(Term_full, levels = rev(Term_full))
+  )
 
 # Make plot
-GO_plot_MF <- ggplot(GOres_clean_MF[1:20, ], aes(x = Term, y = negLog10P)) +
+GO_plot_MF <- ggplot(GOres_clean_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
   geom_col(fill = "#EE3A8C") +
   coord_flip() +
   ylim(0, 5.5) +
@@ -947,7 +990,8 @@ GO_plot_MF <- ggplot(GOres_clean_MF[1:20, ], aes(x = Term, y = negLog10P)) +
   labs(
     title = "Molecular function",
     x = NULL,
-    y = expression(-log[10](p-vaue)))
+    y = expression(-log[10](p-vaue))) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) 
 
 GO_plot_MF
 
@@ -956,10 +1000,8 @@ GO_plot_MF
 Patchwork plot
 
 ```{r patchwork GO plot}
-patch_GO_plot <- GO_plot_BP | GO_plot_MF
-patch_GO_plot + plot_annotation(
-  title = "Significant GO-terms",
-  tag_levels = "A")
+patch_GO_plot <- GO_plot_BP / GO_plot_MF
+patch_GO_plot
 ```
 
 
