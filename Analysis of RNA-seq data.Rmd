@@ -292,6 +292,7 @@ dds$genotype #confirm that CC is first level
 
 ```
 
+
 ## Run DESeq analysis
 
 ```{r Run DESeq}
@@ -834,28 +835,50 @@ sum(resampling_overlap_vip >= no_overlap_vip)/1000 #p-value
 
 ```
 
+
 # Pathway analysis
 
 ## Gen ontology (GO) enrichment anlysis
 
 ### Seting up for running GO
 
-```{r GO preparation}
+```{r making gill universe}
 
-# Filtering for log2FoldChange
-DEGs_fold <- subset(DEGs, abs(log2FoldChange) > 0.5) #from 464 genes to only 141 genes
-DEGs_list <- DEGs_fold$Gene #making list of gene names
+dds <- estimateSizeFactors(dds)  
+
+norm_counts <- counts(dds, normalized = TRUE)   #normalized counts
+
+keep_count <- rowSums(norm_counts > 1) >= 3
+
+gill_universe <- rownames(norm_counts)[keep_count]
+
+```
+
+
+```{r GO preparation CC up}
+
+# Filtering for log2FoldChange CC up
+
+CC_up_genes <- DEGs %>%
+  filter(log2FoldChange > 0.5) %>%
+  pull(Gene)
+
+TT_up_genes <- DEGs %>%
+  filter(log2FoldChange < -0.5) %>%
+  pull(Gene)
 
 
 # Conecting to Ensamble for salmon 
 ensembl <- useMart("ensembl", dataset = "ssalar_gene_ensembl")
 
 
-# Annotating all genes
+# Annotating the gill genes
 annot <- getBM(
   attributes = c("ensembl_gene_id", "go_id"), #get ensembl-ID and GO-ID
-  mart = ensembl) %>% #gens are named in teh ensembl format
-  filter(go_id != "") #filer out the genes that do not have an ensembl ID
+  filters = "ensembl_gene_id",
+  values = gill_universe,
+  mart = ensembl) %>% #gens are named in the ensembl format
+  filter(go_id != "") #filter out the genes that do not have an ensembl ID
 
 
 # List of Ensembl ID with GO-ID
@@ -863,38 +886,51 @@ gene2GO <- split(annot$go_id, annot$ensembl_gene_id) #put the GO-IDs together wi
 
 
 # List over genes and if they are DEGs or not
-gene_list <- annot %>% 
-  distinct(ensembl_gene_id) %>% #every genes is only in one time
-  mutate(isDEG = as.integer(ensembl_gene_id %in% DEGs_fold$Gene)) %>% #make a new colunm with 1 or 0 if it is a DEG or not
-  deframe() %>% #makes into a vector
-  factor() #convert 0 and 1 into factor
+make_gene_list <- function(deg_vector, universe_genes) {
+
+  gene_list <- data.frame(
+    ensembl_gene_id = universe_genes) %>%
+    mutate(
+      isDEG = as.integer(ensembl_gene_id %in% deg_vector)) %>%
+    deframe() %>%
+    factor()
+
+  return(gene_list)
+}
+
+# CC up
+gene_list_CC_up <- make_gene_list(
+  CC_up_genes,
+  gill_universe)
+
+# TT up
+gene_list_TT_up <- make_gene_list(
+  TT_up_genes,
+  gill_universe)
 
 ```
 
 ### Running GO-enrichment for biological process
 
-```{r run GO BP}
+```{r run GO BP CC up}
 
 # Create topGOdata object 
-GOdata_BP <- new("topGOdata",
+GOdata_BP_CC_up <- new("topGOdata",
               ontology = "BP",  #Biological Process
-              allGenes = gene_list,
+              allGenes = gene_list_CC_up,
               annot = annFUN.gene2GO,
               gene2GO = gene2GO)
 
 
 # See if GO-terms is more common in DEGs then is expected
-res_fisher_BP <- runTest(GOdata_BP, algorithm = "classic", statistic = "fisher")
-res_fisher_BP
-
-# 223 non-trivial GO-terms, terms with at least one DEG. 21 GO-terms had significant over representations of DEGs. Only 44 DEGs with GO-information 
+res_fisher_BP_CC_up <- runTest(GOdata_BP_CC_up, algorithm = "classic", statistic = "fisher")
 
 # Table with the 20 most significant GO-terms (gene functions)
-GOres_BP <- GenTable(GOdata_BP, classicFisher = res_fisher_BP, topNodes = 20)
-head(GOres_BP)
+GOres_BP_CC_up <- GenTable(GOdata_BP_CC_up, classicFisher = res_fisher_BP_CC_up, topNodes = 20)
+head(GOres_BP_CC_up)
 
 # Clean up
-GOres_clean_BP <- GOres_BP %>%
+GOres_clean_BP_CC_up <- GOres_BP_CC_up %>%
   mutate(
     classicFisher = as.numeric(classicFisher), #makes the p-values into numbers from character 
     negLog10P = -log10(classicFisher)) %>% #logfold the p-value to make it readable, minus so lower numbers get higher value
@@ -904,66 +940,152 @@ GOres_clean_BP <- GOres_BP %>%
 
 # Get actual full description and not just ...
 
-GOres_clean_BP$Term_full <- AnnotationDbi::select(
+GOres_clean_BP_CC_up$Term_full <- AnnotationDbi::select(
   GO.db,
-  keys = GOres_BP$GO.ID,
+  keys = GOres_BP_CC_up$GO.ID,
   keytype = "GOID",
   columns = "TERM"
 )$TERM
 
 # Get correct order
 
-GOres_clean_BP <- GOres_clean_BP %>%
+GOres_clean_BP_CC_up <- GOres_clean_BP_CC_up %>%
   arrange(desc(negLog10P))
 
-GOres_clean_BP$Term_full <- factor(
-  GOres_clean_BP$Term_full,
-  levels = rev(GOres_clean_BP$Term_full))
+GOres_clean_BP_CC_up$Term_full <- factor(
+  GOres_clean_BP_CC_up$Term_full,
+  levels = rev(GOres_clean_BP_CC_up$Term_full))
 
 
 # Make plot
-GO_plot_BP <- ggplot(GOres_clean_BP[1:20, ], aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#0072B2") +
-  coord_flip() +
-  ylim(0, 5.5) +
+GO_plot_BP_CC_up <- ggplot(GOres_clean_BP_CC_up[1:20, ], aes(x = Term_full, y = negLog10P)) +
+  geom_col(fill = "#FFB5C5") +
+  coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
-    title = "Biological Process",
+    title = "Biological Process (CC upregulated)",
     x = NULL,
     y = expression(-log[10](p-value))) +
   theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
-GO_plot_BP
+GO_plot_BP_CC_up
+
+```
+
+### TT up regulated 
+
+```{r TT UP}
+
+# Create topGOdata object 
+GOdata_BP_TT_up <- new("topGOdata",
+              ontology = "BP",  # Biological Process
+              allGenes = gene_list_TT_up,
+              annot = annFUN.gene2GO,
+              gene2GO = gene2GO)
+
+
+# See if GO-terms are more common in DEGs than expected
+res_fisher_BP_TT_up <- runTest(
+  GOdata_BP_TT_up,
+  algorithm = "classic",
+  statistic = "fisher"
+)
+
+
+# Table with the 20 most significant GO-terms
+GOres_BP_TT_up <- GenTable(
+  GOdata_BP_TT_up,
+  classicFisher = res_fisher_BP_TT_up,
+  topNodes = 20
+)
+
+head(GOres_BP_TT_up)
+
+
+# Clean up
+GOres_clean_BP_TT_up <- GOres_BP_TT_up %>%
+  mutate(
+    classicFisher = as.numeric(classicFisher), # convert p-values from character to numeric
+    negLog10P = -log10(classicFisher)
+  ) %>%
+  filter(!is.na(classicFisher)) %>%
+  arrange(desc(negLog10P)) %>%
+  mutate(Term = factor(Term, levels = rev(unique(Term))))
+
+
+# Get full GO term descriptions
+GOres_clean_BP_TT_up$Term_full <- AnnotationDbi::select(
+  GO.db,
+  keys = GOres_BP_TT_up$GO.ID,
+  keytype = "GOID",
+  columns = "TERM"
+)$TERM
+
+
+# Get correct order
+GOres_clean_BP_TT_up <- GOres_clean_BP_TT_up %>%
+  arrange(desc(negLog10P))
+
+GOres_clean_BP_TT_up$Term_full <- factor(
+  GOres_clean_BP_TT_up$Term_full,
+  levels = rev(GOres_clean_BP_TT_up$Term_full)
+)
+
+
+# Make plot
+GO_plot_BP_TT_up <- ggplot(GOres_clean_BP_TT_up[1:20, ], aes(x = Term_full, y = negLog10P)) +
+  geom_col(fill = "#CD919E") +
+  coord_flip(ylim = c(0, 5.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Biological Process (TT upregulated)",
+    x = NULL,
+    y = expression(-log[10](p-value))) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
+
+GO_plot_BP_TT_up
 
 ```
 
 
 
 
+
+
 ### Run GO-enrichment for molecular function
 
-```{r run GO MF}
+```{r run GO MF CC up}
 
-# Run GO-enrichment
-GOdata_MF <- new("topGOdata",
-              ontology = "MF",  #Molecular function
-              allGenes = gene_list,
+# Run GO-enrichment (CC upregulated)
+GOdata_CC_up_MF <- new("topGOdata",
+              ontology = "MF",  # Molecular Function
+              allGenes = gene_list_CC_up,
               annot = annFUN.gene2GO,
               gene2GO = gene2GO)
 
 
-# See if GO-terms is more common in DEGs then is expected
-resultFisher_MF <- runTest(GOdata_MF, algorithm = "classic", statistic = "fisher")
-resultFisher_MF
+# Run Fisher test
+resultFisher_CC_up_MF <- runTest(
+  GOdata_CC_up_MF,
+  algorithm = "classic",
+  statistic = "fisher")
 
-# 208 non-trivial GO-terms, terms with at least one DEG. 10 GO-terms had significant over representations of DEGs. Only 94 DEGs with GO-information 
+resultFisher_CC_up_MF
 
-# Table with the 20 most significant GO-terms (gene functions)
-GOres_MF <- GenTable(GOdata_MF, classicFisher = resultFisher_MF, topNodes = 20)
-head(GOres_MF)
 
-GOres_clean_MF <- GOres_MF %>%
+# Table with top GO terms
+GOres_CC_up_MF <- GenTable(
+  GOdata_CC_up_MF,
+  classicFisher = resultFisher_CC_up_MF,
+  topNodes = 20)
+
+head(GOres_CC_up_MF)
+
+
+# Clean up
+GOres_clean_CC_up_MF <- GOres_CC_up_MF %>%
   mutate(
     classicFisher = as.numeric(classicFisher),
     negLog10P = -log10(classicFisher)
@@ -975,34 +1097,133 @@ GOres_clean_MF <- GOres_MF %>%
       GO.db,
       keys = GO.ID,
       keytype = "GOID",
-      columns = "TERM"
-    )$TERM,
+      columns = "TERM")$TERM,
     
-    Term_full = factor(Term_full, levels = rev(Term_full))
-  )
+    Term_full = factor(Term_full, levels = rev(Term_full)))
 
-# Make plot
-GO_plot_MF <- ggplot(GOres_clean_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#EE3A8C") +
-  coord_flip() +
-  ylim(0, 5.5) +
+
+# Plot
+GO_plot_CC_up_MF <- ggplot(GOres_clean_CC_up_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
+  geom_col(fill = "#EEDD82") +
+   coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
-    title = "Molecular function",
+    title = "Molecular Function (CC upregulated)",
     x = NULL,
-    y = expression(-log[10](p-vaue))) +
-  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) 
+    y = expression(-log[10](p-value))) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
-GO_plot_MF
+GO_plot_CC_up_MF
 
 ```
+
+### TT UP
+
+```{r}
+
+# Run GO-enrichment (TT upregulated)
+GOdata_TT_up_MF <- new("topGOdata",
+              ontology = "MF",  # Molecular Function
+              allGenes = gene_list_TT_up,
+              annot = annFUN.gene2GO,
+              gene2GO = gene2GO)
+
+
+# Fisher test
+resultFisher_TT_up_MF <- runTest(
+  GOdata_TT_up_MF,
+  algorithm = "classic",
+  statistic = "fisher")
+
+resultFisher_TT_up_MF
+
+
+# Table with top GO terms
+GOres_TT_up_MF <- GenTable(
+  GOdata_TT_up_MF,
+  classicFisher = resultFisher_TT_up_MF,
+  topNodes = 20)
+
+head(GOres_TT_up_MF)
+
+
+# Clean up
+GOres_clean_TT_up_MF <- GOres_TT_up_MF %>%
+  mutate(
+    classicFisher = as.numeric(classicFisher),
+    negLog10P = -log10(classicFisher)
+  ) %>%
+  filter(!is.na(classicFisher)) %>%
+  arrange(desc(negLog10P))
+
+
+# Add full GO term names (fixed parentheses structure)
+GOres_clean_TT_up_MF$Term_full <- AnnotationDbi::select(
+  GO.db,
+  keys = GOres_TT_up_MF$GO.ID,
+  keytype = "GOID",
+  columns = "TERM")$TERM
+
+
+# Ensure correct order
+GOres_clean_TT_up_MF$Term_full <- factor(
+  GOres_clean_TT_up_MF$Term_full,
+  levels = rev(GOres_clean_TT_up_MF$Term_full))
+
+
+# Plot
+GO_plot_TT_up_MF <- ggplot(
+  GOres_clean_TT_up_MF[1:20, ],
+  aes(x = Term_full, y = negLog10P)) +
+  geom_col(fill = "#CDBE70") +
+  coord_flip(ylim = c(0, 5.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Molecular Function (TT upregulated)",
+    x = NULL,
+    y = expression(-log[10](p-value))) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
+
+GO_plot_TT_up_MF
+
+```
+
 
 Patchwork plot
 
 ```{r patchwork GO plot}
-patch_GO_plot <- GO_plot_BP / GO_plot_MF
+
+patch_GO_plot <- (GO_plot_BP_CC_up + GO_plot_BP_TT_up) / (GO_plot_CC_up_MF + GO_plot_TT_up_MF)
 patch_GO_plot
+
+
+patch_GO_plot <- (
+  GO_plot_BP_CC_up + GO_plot_BP_TT_up
+) / (
+  GO_plot_CC_up_MF + GO_plot_TT_up_MF
+) +
+  plot_layout(guides = "collect") &
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.margin = margin(5, 5, 5, 5)
+  )
+
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Compare to scRNA
