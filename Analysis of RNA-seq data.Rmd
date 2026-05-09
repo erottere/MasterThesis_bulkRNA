@@ -633,7 +633,6 @@ plsda_result <- plsda(expr_matrix_corrected, group_vector, ncomp = 3)
 ```
 
 
-
 ### Score Plots
 
 ```{r Score plots}
@@ -966,7 +965,7 @@ GO_plot_BP_CC_up <- ggplot(GOres_clean_BP_CC_up[1:20, ], aes(x = Term_full, y = 
     title = "Biological Process (CC upregulated)",
     x = NULL,
     y = expression(-log[10](p-value))) +
-  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 18, lineheight =  0.9), axis.text.x = element_text(size = 18, lineheight =  0.9), plot.title = element_text(size = 22, face = "bold"), axis.title.x = element_text(size = 18)) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
 GO_plot_BP_CC_up
@@ -1042,7 +1041,7 @@ GO_plot_BP_TT_up <- ggplot(GOres_clean_BP_TT_up[1:20, ], aes(x = Term_full, y = 
     title = "Biological Process (TT upregulated)",
     x = NULL,
     y = expression(-log[10](p-value))) +
-  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 18, lineheight =  0.9), axis.text.x = element_text(size = 18, lineheight =  0.9), plot.title = element_text(size = 22, face = "bold"), axis.title.x = element_text(size = 18)) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
 GO_plot_BP_TT_up
@@ -1103,7 +1102,7 @@ GOres_clean_CC_up_MF <- GOres_CC_up_MF %>%
 
 
 # Plot
-GO_plot_CC_up_MF <- ggplot(GOres_clean_CC_up_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
+GO_plot_MF_CC_up <- ggplot(GOres_clean_CC_up_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
   geom_col(fill = "#EEDD82") +
    coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
@@ -1111,10 +1110,11 @@ GO_plot_CC_up_MF <- ggplot(GOres_clean_CC_up_MF[1:20, ], aes(x = Term_full, y = 
     title = "Molecular Function (CC upregulated)",
     x = NULL,
     y = expression(-log[10](p-value))) +
-  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 18, lineheight =  0.9), axis.text.x = element_text(size = 18, lineheight =  0.9), plot.title = element_text(size = 22, face = "bold"), axis.title.x = element_text(size = 18)) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
-GO_plot_CC_up_MF
+GO_plot_MF_CC_up
+
 
 ```
 
@@ -1173,7 +1173,7 @@ GOres_clean_TT_up_MF$Term_full <- factor(
 
 
 # Plot
-GO_plot_TT_up_MF <- ggplot(
+GO_plot_MF_TT_up <- ggplot(
   GOres_clean_TT_up_MF[1:20, ],
   aes(x = Term_full, y = negLog10P)) +
   geom_col(fill = "#CDBE70") +
@@ -1183,10 +1183,10 @@ GO_plot_TT_up_MF <- ggplot(
     title = "Molecular Function (TT upregulated)",
     x = NULL,
     y = expression(-log[10](p-value))) +
-  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 8, lineheight =  0.9)) +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 20), axis.text.y = element_text(size = 18, lineheight =  0.9), axis.text.x = element_text(size = 18, lineheight =  0.9), plot.title = element_text(size = 22, face = "bold"), axis.title.x = element_text(size = 18)) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 60))
 
-GO_plot_TT_up_MF
+GO_plot_MF_TT_up
 
 ```
 
@@ -1195,33 +1195,16 @@ Patchwork plot
 
 ```{r patchwork GO plot}
 
-patch_GO_plot <- (GO_plot_BP_CC_up + GO_plot_BP_TT_up) / (GO_plot_CC_up_MF + GO_plot_TT_up_MF)
-patch_GO_plot
+patch_GO_plot_BP <- GO_plot_BP_CC_up / GO_plot_BP_TT_up
+patch_GO_plot_BP
 
 
-patch_GO_plot <- (
-  GO_plot_BP_CC_up + GO_plot_BP_TT_up
-) / (
-  GO_plot_CC_up_MF + GO_plot_TT_up_MF
-) +
-  plot_layout(guides = "collect") &
-  theme(
-    axis.text.y = element_text(size = 8),
-    plot.margin = margin(5, 5, 5, 5)
-  )
+
+patch_GO_plot_MF <- GO_plot_MF_CC_up / GO_plot_MF_TT_up
+patch_GO_plot_MF
+
 
 ```
-
-
-
-
-
-
-
-
-
-
-
 
 
 
