@@ -514,7 +514,7 @@ ENSSSAG00000000827 - peroxiredoxin 4 (prdx4)
 DEGs_names <- DEGs$Gene
 Hubtargets_names <- hubtargets$Gene
 
-gene_name_list <- list("DEGs" = DEGs_names, "Hubtargets" = Hubtargets_names)
+gene_name_list <- list("DEGs" = DEGs_names, "Hub-locus eQTL targets" = Hubtargets_names)
 
 fit <- euler(gene_name_list)
 
@@ -747,7 +747,7 @@ vip_df <- vip_sorted %>%
   enframe(name = "Gene", value = "VIP") %>%
   inner_join(select(gene_des, Gene, gene_name, biotype, description), by = "Gene")
 
-vip15 <- filter(vip_df, VIP > 1.5)
+vip1 <- filter(vip_df, VIP > 1)
 
 ```
 
@@ -773,7 +773,7 @@ How many of the genes with high VIP score are hubtargets
 
 ```{r hutargets in top VIP}
 
-hubtargets_in_VIP <- vip15 %>% 
+hubtargets_in_VIP <- vip1 %>% 
   filter(Gene %in% hubtargets$Gene)
 
 nrow(hubtargets_in_VIP)
@@ -786,7 +786,7 @@ How many of the genes with high VIP are in the hub-locus
 
 ```{r vip to locus}
 
-locus_in_VIP <- vip15 %>% 
+locus_in_VIP <- vip1 %>% 
   filter(Gene %in% hub_locus)
 
 nrow(locus_in_VIP)
@@ -802,12 +802,12 @@ Randomization test
 set.seed(14)
 
 # Draw DEGS amount of random genes
-no_vip <- nrow(vip15) 
+no_vip <- nrow(vip1) 
 
 
 expr_tbl <- reshub %>% select(Gene, baseMean, log2FoldChange, pvalue, padj) %>% 
   filter(!is.na(baseMean)) %>% 
-  mutate(is_DEG = Gene %in% vip15$Gene) %>% 
+  mutate(is_DEG = Gene %in% vip1$Gene) %>% 
   mutate(is_hub = Gene %in% hubtargets$Gene)
   
 
@@ -823,7 +823,7 @@ median(resampling_overlap_vip)
 mean(resampling_overlap_vip)
 
 # calculate the actual overlap 
-no_overlap_vip <- vip15 %>% 
+no_overlap_vip <- vip1 %>% 
   filter(Gene %in% hubtargets$Gene) %>% 
   nrow()
 
