@@ -958,7 +958,7 @@ GOres_clean_BP_CC_up$Term_full <- factor(
 
 # Make plot
 GO_plot_BP_CC_up <- ggplot(GOres_clean_BP_CC_up[1:20, ], aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#FFB5C5") +
+  geom_col(fill = "#CD919E") +
   coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1034,7 +1034,7 @@ GOres_clean_BP_TT_up$Term_full <- factor(
 
 # Make plot
 GO_plot_BP_TT_up <- ggplot(GOres_clean_BP_TT_up[1:20, ], aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#CD919E") +
+  geom_col(fill = "#FFB5C5") +
   coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1103,7 +1103,7 @@ GOres_clean_CC_up_MF <- GOres_CC_up_MF %>%
 
 # Plot
 GO_plot_MF_CC_up <- ggplot(GOres_clean_CC_up_MF[1:20, ], aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#EEDD82") +
+  geom_col(fill = "#CDBE70") +
    coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1176,7 +1176,7 @@ GOres_clean_TT_up_MF$Term_full <- factor(
 GO_plot_MF_TT_up <- ggplot(
   GOres_clean_TT_up_MF[1:20, ],
   aes(x = Term_full, y = negLog10P)) +
-  geom_col(fill = "#CDBE70") +
+  geom_col(fill = "#EEDD82") +
   coord_flip(ylim = c(0, 5.5)) +
   theme_minimal(base_size = 13) +
   labs(
